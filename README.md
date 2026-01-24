@@ -23,6 +23,7 @@ The addon works automatically. Any action button with a lower-rank spell gets an
 |---------|-------------|
 | `/rw` | Force rescan of spellbook and action bars |
 | `/rw list` | Print all outdated spells to chat |
+| `/rw swap` | Upgrade all lower-rank spells to max rank |
 | `/rw ignore <spell>` | Ignore a spell (for intentional downranking) |
 | `/rw unignore <spell>` | Stop ignoring a spell |
 | `/rw ignored` | Show ignored spells |
@@ -46,6 +47,14 @@ Healers often downrank for mana efficiency. This tells RankWatch to stop warning
 /rw unignore Healing Touch
 ```
 Changed your mind? Start warning again.
+
+```
+/rw swap
+```
+```
+RankWatch: Upgraded 3 spell(s) to maximum rank.
+```
+Automatically replaces all lower-rank spells on your action bars with their max rank versions. Respects ignored spells.
 
 ## What it detects
 

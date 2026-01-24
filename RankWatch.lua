@@ -90,6 +90,78 @@ function RankWatch:ScanSpellbook()
     end
 end
 
+-- Build spellbook index map: { ["spellname"] = { [rankNum] = spellbookIndex } }
+function RankWatch:BuildSpellbookIndex()
+    local index = {}
+
+    local i = 1
+    while true do
+        local spellName, spellRank = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+        if not spellName then break end
+
+        local rankNum = ParseRankNumber(spellRank)
+        if rankNum then
+            local nameLower = spellName:lower()
+            if not index[nameLower] then
+                index[nameLower] = {}
+            end
+            index[nameLower][rankNum] = i
+        end
+
+        i = i + 1
+    end
+
+    return index
+end
+
+-- Swap all lower-rank spells on action bars to their maximum rank
+function RankWatch:SwapAllToMaxRank()
+    -- Build spellbook index for lookups
+    local spellbookIndex = self:BuildSpellbookIndex()
+
+    local swappedCount = 0
+    local skippedIgnored = 0
+
+    for slot, spellData in pairs(self.ActionBarSpells) do
+        local nameLower = spellData.name:lower()
+        local currentRank = ParseRankNumber(spellData.rank)
+        local highestRank = self.HighestRanks[nameLower]
+
+        -- Skip if no rank info or already at max
+        if currentRank and highestRank and currentRank < highestRank then
+            -- Check if ignored
+            if self.IgnoredSpells[nameLower] then
+                skippedIgnored = skippedIgnored + 1
+            else
+                -- Find the max rank spell in spellbook
+                local spellbookSlot = spellbookIndex[nameLower] and spellbookIndex[nameLower][highestRank]
+                if spellbookSlot then
+                    -- Pick up the max rank spell from spellbook and place on action bar
+                    PickupSpellBookItem(spellbookSlot, BOOKTYPE_SPELL)
+                    PlaceAction(slot)
+                    ClearCursor()
+                    swappedCount = swappedCount + 1
+                end
+            end
+        end
+    end
+
+    -- Rescan and update overlays
+    self:ScanAllActionBars()
+    self:UpdateAllOverlays()
+
+    -- Report results
+    if swappedCount > 0 then
+        print(string.format("|cff00ff00RankWatch:|r Upgraded %d spell(s) to maximum rank.", swappedCount))
+    else
+        print("|cff00ff00RankWatch:|r No spells needed upgrading.")
+    end
+
+    if skippedIgnored > 0 then
+        print(string.format("|cffff6600RankWatch:|r Skipped %d ignored spell(s).", skippedIgnored))
+    end
+end
+
 -- Get spell info from an action slot using tooltip scanning
 local function GetActionSpellInfo(slot)
     if not HasAction(slot) then
@@ -378,6 +450,8 @@ local function SlashHandler(msg)
         RankWatch:UnignoreSpell(arg)
     elseif cmd == "ignored" then
         RankWatch:ListIgnoredSpells()
+    elseif cmd == "swap" then
+        RankWatch:SwapAllToMaxRank()
     elseif cmd == "show" then
         -- Manually show overlay on a slot for testing
         local slot = tonumber(arg)
@@ -484,6 +558,7 @@ local function SlashHandler(msg)
         print("|cffff6600RankWatch|r Commands:")
         print("  /rw - Rescan spellbook and action bars")
         print("  /rw list - Show outdated spells on action bars")
+        print("  /rw swap - Upgrade all lower-rank spells to max rank")
         print("  /rw ignore <spell> - Ignore spell (intentional downranking)")
         print("  /rw unignore <spell> - Stop ignoring spell")
         print("  /rw ignored - List ignored spells")
