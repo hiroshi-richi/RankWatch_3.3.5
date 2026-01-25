@@ -2,7 +2,7 @@
 ## Title: RankWatch
 ## Author: Adolan
 ## Notes: Highlights action bar buttons containing spells that are not the highest learned rank.
-## Version: 1.1.0
+## Version: 1.2.0
 ## SavedVariables: RankWatchDB
 
 RankWatch.lua

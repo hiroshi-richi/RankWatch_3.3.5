@@ -6,6 +6,9 @@ RankWatch.HighestRanks = {}     -- { ["fireball"] = 12, ["heal"] = 4 }
 RankWatch.ActionBarSpells = {}  -- { [slot] = { name, rank, spellID } }
 RankWatch.Overlays = {}         -- { ["ActionButton1"] = TextureObject }
 RankWatch.IgnoredSpells = {}    -- { ["fireball"] = true } for intentional downranking
+RankWatch.ActionBarSpellNames = {} -- { ["fireball"] = true } - spell names on bars (any rank)
+RankWatch.SpellbookOverlays = {}   -- Overlays for spellbook buttons
+RankWatch.SpellbookOpen = false    -- Track if spellbook is open
 
 -- Saved variables (loaded on ADDON_LOADED)
 RankWatchDB = RankWatchDB or {}
@@ -193,7 +196,7 @@ end
 function RankWatch:ScanActionSlot(slot)
     local spellName, spellRank, spellID = GetActionSpellInfo(slot)
 
-    if spellName and spellRank then
+    if spellName then
         self.ActionBarSpells[slot] = {
             name = spellName,
             rank = spellRank,
@@ -210,6 +213,18 @@ end
 function RankWatch:ScanAllActionBars()
     for slot = 1, 120 do
         self:ScanActionSlot(slot)
+    end
+end
+
+-- Build a set of spell names (lowercase) that are on action bars
+function RankWatch:BuildActionBarSpellNames()
+    wipe(self.ActionBarSpellNames)
+
+    for slot, spellData in pairs(self.ActionBarSpells) do
+        if spellData and spellData.name then
+            local nameLower = spellData.name:lower()
+            self.ActionBarSpellNames[nameLower] = true
+        end
     end
 end
 
@@ -272,6 +287,257 @@ function RankWatch:GetOrCreateOverlay(buttonName)
     self.Overlays[buttonName] = overlayFrame
 
     return overlayFrame
+end
+
+-- Get or create overlay texture for a spellbook button
+function RankWatch:GetOrCreateSpellbookOverlay(button)
+    local buttonName = button:GetName()
+    if self.SpellbookOverlays[buttonName] then
+        return self.SpellbookOverlays[buttonName]
+    end
+
+    -- Create a frame to hold the overlay (ensures proper layering)
+    local overlayFrame = CreateFrame("Frame", buttonName .. "RankWatchSpellbookFrame", button)
+    overlayFrame:SetFrameStrata("HIGH")
+    overlayFrame:SetFrameLevel(button:GetFrameLevel() + 10)
+
+    -- Make the overlay slightly larger than the button for a border effect
+    overlayFrame:SetPoint("TOPLEFT", button, "TOPLEFT", -2, 2)
+    overlayFrame:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 2, -2)
+
+    -- Create edge textures for a visible border using WHITE8X8 texture
+    local edgeTexture = "Interface\\BUTTONS\\WHITE8X8"
+
+    -- Top edge
+    local top = overlayFrame:CreateTexture(nil, "OVERLAY")
+    top:SetTexture(edgeTexture)
+    top:SetVertexColor(1.0, 0.3, 0.0, 1.0)  -- Orange-red
+    top:SetHeight(3)
+    top:SetPoint("TOPLEFT", overlayFrame, "TOPLEFT", 0, 0)
+    top:SetPoint("TOPRIGHT", overlayFrame, "TOPRIGHT", 0, 0)
+
+    -- Bottom edge
+    local bottom = overlayFrame:CreateTexture(nil, "OVERLAY")
+    bottom:SetTexture(edgeTexture)
+    bottom:SetVertexColor(1.0, 0.3, 0.0, 1.0)
+    bottom:SetHeight(3)
+    bottom:SetPoint("BOTTOMLEFT", overlayFrame, "BOTTOMLEFT", 0, 0)
+    bottom:SetPoint("BOTTOMRIGHT", overlayFrame, "BOTTOMRIGHT", 0, 0)
+
+    -- Left edge
+    local left = overlayFrame:CreateTexture(nil, "OVERLAY")
+    left:SetTexture(edgeTexture)
+    left:SetVertexColor(1.0, 0.3, 0.0, 1.0)
+    left:SetWidth(3)
+    left:SetPoint("TOPLEFT", overlayFrame, "TOPLEFT", 0, 0)
+    left:SetPoint("BOTTOMLEFT", overlayFrame, "BOTTOMLEFT", 0, 0)
+
+    -- Right edge
+    local right = overlayFrame:CreateTexture(nil, "OVERLAY")
+    right:SetTexture(edgeTexture)
+    right:SetVertexColor(1.0, 0.3, 0.0, 1.0)
+    right:SetWidth(3)
+    right:SetPoint("TOPRIGHT", overlayFrame, "TOPRIGHT", 0, 0)
+    right:SetPoint("BOTTOMRIGHT", overlayFrame, "BOTTOMRIGHT", 0, 0)
+
+    overlayFrame:Hide()
+    self.SpellbookOverlays[buttonName] = overlayFrame
+
+    return overlayFrame
+end
+
+-- Check if a spellbook spell should be highlighted (missing from action bars)
+function RankWatch:ShouldHighlightSpellbookSpell(spellName, spellRank)
+    if not spellName then
+        return false
+    end
+
+    local nameLower = spellName:lower()
+
+    -- If ANY rank of this spell is on action bars, don't highlight
+    if self.ActionBarSpellNames[nameLower] then
+        return false
+    end
+
+    -- Skip stance/aura spells - they're on the stance bar, not action bars
+    local stanceNames = self:GetStanceSpellNames()
+    if stanceNames[nameLower] then
+        return false
+    end
+
+    -- Only highlight if this is the highest rank
+    local rankNum = spellRank and spellRank:match("Rank (%d+)")
+    rankNum = rankNum and tonumber(rankNum)
+
+    if not rankNum then
+        return false  -- Skip spells without ranks (passives, etc.)
+    end
+
+    local highestRank = self.HighestRanks[nameLower]
+    if not highestRank then
+        return false
+    end
+
+    return rankNum == highestRank
+end
+
+-- Update a single spellbook button overlay
+function RankWatch:UpdateSpellbookButton(buttonIndex)
+    local button = _G["SpellButton" .. buttonIndex]
+    if not button or not button:IsVisible() then
+        return
+    end
+
+    local slot = SpellBook_GetSpellBookSlot(button)
+    if not slot then
+        local overlay = self.SpellbookOverlays[button:GetName()]
+        if overlay then
+            overlay:Hide()
+        end
+        return
+    end
+
+    local spellName, spellRank = GetSpellBookItemName(slot, BOOKTYPE_SPELL)
+
+    -- Skip passive spells - they can't be placed on action bars
+    local spellType, spellId = GetSpellBookItemInfo(slot, BOOKTYPE_SPELL)
+    if spellId and IsPassiveSpell(spellId) then
+        local overlay = self.SpellbookOverlays[button:GetName()]
+        if overlay then
+            overlay:Hide()
+        end
+        return
+    end
+
+    local overlay = self:GetOrCreateSpellbookOverlay(button)
+    if not overlay then
+        return
+    end
+
+    if self:ShouldHighlightSpellbookSpell(spellName, spellRank) then
+        overlay:Show()
+    else
+        overlay:Hide()
+    end
+end
+
+-- Update all visible spellbook buttons
+function RankWatch:UpdateAllSpellbookButtons()
+    for i = 1, 12 do
+        self:UpdateSpellbookButton(i)
+    end
+end
+
+-- Hide all spellbook overlays
+function RankWatch:HideAllSpellbookOverlays()
+    for buttonName, overlay in pairs(self.SpellbookOverlays) do
+        overlay:Hide()
+    end
+end
+
+-- Called when Spellbook opens
+function RankWatch:OnSpellbookShow()
+    self.SpellbookOpen = true
+    self:BuildActionBarSpellNames()
+    self:UpdateAllSpellbookButtons()
+end
+
+-- Called when Spellbook closes
+function RankWatch:OnSpellbookHide()
+    self.SpellbookOpen = false
+    self:HideAllSpellbookOverlays()
+end
+
+-- Called when Spellbook page/tab changes
+function RankWatch:OnSpellbookPageChange()
+    if self.SpellbookOpen then
+        -- Small delay to let the UI update
+        C_Timer.After(0.05, function()
+            self:UpdateAllSpellbookButtons()
+        end)
+    end
+end
+
+-- Check if a spell name corresponds to a passive spell by scanning the spellbook
+function RankWatch:IsSpellPassive(spellNameLower)
+    local i = 1
+    while true do
+        local name, rank = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+        if not name then break end
+
+        if name:lower() == spellNameLower then
+            local spellType, spellId = GetSpellBookItemInfo(i, BOOKTYPE_SPELL)
+            if spellId and IsPassiveSpell(spellId) then
+                return true
+            end
+        end
+        i = i + 1
+    end
+    return false
+end
+
+-- Build a set of stance/shapeshift spell names (lowercase)
+function RankWatch:GetStanceSpellNames()
+    local stanceNames = {}
+    local numForms = GetNumShapeshiftForms()
+
+    for i = 1, numForms do
+        local icon, active, castable, spellId = GetShapeshiftFormInfo(i)
+        if spellId then
+            local name = GetSpellInfo(spellId)
+            if name then
+                stanceNames[name:lower()] = true
+            end
+        end
+    end
+
+    return stanceNames
+end
+
+-- Get list of missing spells (not on any action bar)
+function RankWatch:GetMissingSpells()
+    local missing = {}
+    local stanceNames = self:GetStanceSpellNames()
+
+    for spellName, highestRank in pairs(self.HighestRanks) do
+        if not self.ActionBarSpellNames[spellName] then
+            -- Skip passive spells - they can't be placed on action bars
+            -- Skip stance/aura spells - they're on the stance bar
+            if not self:IsSpellPassive(spellName) and not stanceNames[spellName] then
+                missing[spellName] = highestRank
+            end
+        end
+    end
+
+    return missing
+end
+
+-- Print missing spells to chat
+function RankWatch:PrintMissingSpells()
+    self:BuildActionBarSpellNames()
+    local missing = self:GetMissingSpells()
+    local count = 0
+
+    local sortedNames = {}
+    for spellName, _ in pairs(missing) do
+        table.insert(sortedNames, spellName)
+    end
+    table.sort(sortedNames)
+
+    for _, spellName in ipairs(sortedNames) do
+        local highestRank = missing[spellName]
+        -- Capitalize first letter for display
+        local displayName = spellName:gsub("^%l", string.upper)
+        print(string.format("|cffff6600RankWatch:|r %s (Rank %d) is not on any action bar",
+            displayName, highestRank))
+        count = count + 1
+    end
+
+    if count == 0 then
+        print("|cff00ff00RankWatch:|r All your spells are on action bars!")
+    else
+        print(string.format("|cffff6600RankWatch:|r Found %d spell(s) not on your action bars.", count))
+    end
 end
 
 -- Check if a spell should be highlighted (is lower than max rank)
@@ -340,7 +606,13 @@ end
 function RankWatch:FullRefresh()
     self:ScanSpellbook()
     self:ScanAllActionBars()
+    self:BuildActionBarSpellNames()
     self:UpdateAllOverlays()
+
+    -- Also update Spellbook if it's open
+    if self.SpellbookOpen then
+        self:UpdateAllSpellbookButtons()
+    end
 end
 
 -- Get list of outdated spells on action bars
@@ -554,10 +826,13 @@ local function SlashHandler(msg)
                     slot, tostring(actionType), tostring(id), ttName, ttRank))
             end
         end
+    elseif cmd == "missing" then
+        RankWatch:PrintMissingSpells()
     elseif cmd == "help" then
         print("|cffff6600RankWatch|r Commands:")
         print("  /rw - Rescan spellbook and action bars")
         print("  /rw list - Show outdated spells on action bars")
+        print("  /rw missing - Show spells not on any action bar")
         print("  /rw swap - Upgrade all lower-rank spells to max rank")
         print("  /rw ignore <spell> - Ignore spell (intentional downranking)")
         print("  /rw unignore <spell> - Stop ignoring spell")
@@ -597,6 +872,38 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
         -- Initial scan on login/reload
         C_Timer.After(1, function()
             RankWatch:FullRefresh()
+
+            -- Hook SpellBookFrame show/hide
+            if SpellBookFrame then
+                SpellBookFrame:HookScript("OnShow", function()
+                    RankWatch:OnSpellbookShow()
+                end)
+                SpellBookFrame:HookScript("OnHide", function()
+                    RankWatch:OnSpellbookHide()
+                end)
+            end
+
+            -- Hook page navigation buttons
+            if SpellBookPrevPageButton then
+                SpellBookPrevPageButton:HookScript("OnClick", function()
+                    RankWatch:OnSpellbookPageChange()
+                end)
+            end
+            if SpellBookNextPageButton then
+                SpellBookNextPageButton:HookScript("OnClick", function()
+                    RankWatch:OnSpellbookPageChange()
+                end)
+            end
+
+            -- Hook spell school tabs (SpellBookSkillLineTab1-8)
+            for i = 1, 8 do
+                local tab = _G["SpellBookSkillLineTab" .. i]
+                if tab then
+                    tab:HookScript("OnClick", function()
+                        RankWatch:OnSpellbookPageChange()
+                    end)
+                end
+            end
         end)
 
     elseif event == "SPELLS_CHANGED" then
@@ -609,11 +916,23 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
         if slot then
             RankWatch:ScanActionSlot(slot)
             RankWatch:UpdateSlotOverlay(slot)
+
+            -- Rebuild spell names and update Spellbook if open
+            RankWatch:BuildActionBarSpellNames()
+            if RankWatch.SpellbookOpen then
+                RankWatch:UpdateAllSpellbookButtons()
+            end
         end
 
     elseif event == "UPDATE_BONUS_ACTIONBAR" or event == "ACTIONBAR_PAGE_CHANGED" then
         -- Refresh overlays when stance/form changes or bar page changes
         RankWatch:UpdateAllOverlays()
+
+        -- Rebuild spell names and update Spellbook if open
+        RankWatch:BuildActionBarSpellNames()
+        if RankWatch.SpellbookOpen then
+            RankWatch:UpdateAllSpellbookButtons()
+        end
     end
 end)
 

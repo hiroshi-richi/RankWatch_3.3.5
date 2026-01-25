@@ -23,6 +23,7 @@ The addon works automatically. Any action button with a lower-rank spell gets an
 |---------|-------------|
 | `/rw` | Force rescan of spellbook and action bars |
 | `/rw list` | Print all outdated spells to chat |
+| `/rw missing` | Print spells not on any action bar |
 | `/rw swap` | Upgrade all lower-rank spells to max rank |
 | `/rw ignore <spell>` | Ignore a spell (for intentional downranking) |
 | `/rw unignore <spell>` | Stop ignoring a spell |
