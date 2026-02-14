@@ -425,6 +425,47 @@ function RankWatch:ShouldHighlightSpellbookSpell(spellName, spellRank)
     return rankNum == highestRank
 end
 
+-- Resolve spellbook slot for a visible SpellButton in a 3.3.5a-safe way.
+local function GetSpellbookButtonSlot(button, buttonIndex)
+    if SpellBook_GetSpellBookSlot then
+        local ok, slot = pcall(SpellBook_GetSpellBookSlot, button)
+        if ok and slot then
+            return slot
+        end
+
+        local id = buttonIndex or (button and button.GetID and button:GetID())
+        if id then
+            ok, slot = pcall(SpellBook_GetSpellBookSlot, id, SpellBookFrame and SpellBookFrame.bookType or BOOKTYPE_SPELL)
+            if ok and slot then
+                return slot
+            end
+        end
+    end
+
+    if not buttonIndex then
+        buttonIndex = button and button.GetID and button:GetID()
+    end
+    if not buttonIndex or not SpellBookFrame then
+        return nil
+    end
+
+    local skillLine = SpellBookFrame.selectedSkillLine
+    local page = SpellBookFrame.currentPage or 1
+    local _, _, offset, numSpells = GetSpellTabInfo(skillLine or 1)
+    if not offset or not numSpells then
+        return nil
+    end
+
+    local spellsPerPage = SPELLS_PER_PAGE or 12
+    local slot = offset + buttonIndex + ((page - 1) * spellsPerPage)
+
+    if slot > (offset + numSpells) then
+        return nil
+    end
+
+    return slot
+end
+
 -- Update a single spellbook button overlay
 function RankWatch:UpdateSpellbookButton(buttonIndex)
     local button = _G["SpellButton" .. buttonIndex]
@@ -432,7 +473,15 @@ function RankWatch:UpdateSpellbookButton(buttonIndex)
         return
     end
 
-    local slot = SpellBook_GetSpellBookSlot(button)
+    if SpellBookFrame and SpellBookFrame.bookType and SpellBookFrame.bookType ~= BOOKTYPE_SPELL then
+        local overlay = self.SpellbookOverlays[button:GetName()]
+        if overlay then
+            overlay:Hide()
+        end
+        return
+    end
+
+    local slot = GetSpellbookButtonSlot(button, buttonIndex)
     if not slot then
         local overlay = self.SpellbookOverlays[button:GetName()]
         if overlay then
