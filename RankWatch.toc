@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: RankWatch
 ## Author: Adolan
-## Notes: Highlights action bar buttons containing spells that are not the highest learned rank.
-## Version: 1.2.0
+## Notes: Highlights action bar buttons containing spells that are not the highest learned rank. Backport for WoW 3.3.5a (WotLK). Fork of Adolanium/RankWatch.
+## Version: v1.2.0-wotlk335a.1
 ## SavedVariables: RankWatchDB
 
 RankWatch.lua
