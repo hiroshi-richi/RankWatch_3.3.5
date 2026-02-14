@@ -1,4 +1,4 @@
-## Interface: 20505
+## Interface: 30300
 ## Title: RankWatch
 ## Author: Adolan
 ## Notes: Highlights action bar buttons containing spells that are not the highest learned rank.

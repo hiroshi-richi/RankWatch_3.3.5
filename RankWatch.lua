@@ -1,5 +1,7 @@
 -- RankWatch: Highlights action bar buttons with lower rank spells
 local addonName, RankWatch = ...
+addonName = addonName or "RankWatch"
+RankWatch = RankWatch or {}
 
 -- Data structures
 RankWatch.HighestRanks = {}     -- { ["fireball"] = 12, ["heal"] = 4 }
@@ -19,6 +21,48 @@ local SlotToButton = {}
 -- Create a hidden tooltip for scanning
 local scanTooltip = CreateFrame("GameTooltip", "RankWatchScanTooltip", nil, "GameTooltipTemplate")
 scanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+
+-- Backport timer helper for clients without C_Timer (e.g. 3.3.5a)
+local function DelayCall(delay, fn)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(delay, fn)
+        return
+    end
+
+    local elapsed = 0
+    local timerFrame = CreateFrame("Frame")
+    timerFrame:SetScript("OnUpdate", function(self, dt)
+        elapsed = elapsed + dt
+        if elapsed >= delay then
+            self:SetScript("OnUpdate", nil)
+            fn()
+        end
+    end)
+end
+
+-- 3.3.5a-friendly passive check from spellbook slot
+local function IsPassiveSpellbookSlot(slot)
+    if not slot then
+        return false
+    end
+
+    if IsPassiveSpell then
+        local ok, result = pcall(IsPassiveSpell, slot, BOOKTYPE_SPELL)
+        if ok then
+            return result and true or false
+        end
+    end
+
+    local _, spellId = GetSpellBookItemInfo(slot, BOOKTYPE_SPELL)
+    if IsPassiveSpell and spellId then
+        local ok, result = pcall(IsPassiveSpell, spellId)
+        if ok then
+            return result and true or false
+        end
+    end
+
+    return false
+end
 
 -- Build the slot-to-button mapping table
 local function BuildSlotMapping()
@@ -400,8 +444,7 @@ function RankWatch:UpdateSpellbookButton(buttonIndex)
     local spellName, spellRank = GetSpellBookItemName(slot, BOOKTYPE_SPELL)
 
     -- Skip passive spells - they can't be placed on action bars
-    local spellType, spellId = GetSpellBookItemInfo(slot, BOOKTYPE_SPELL)
-    if spellId and IsPassiveSpell(spellId) then
+    if IsPassiveSpellbookSlot(slot) then
         local overlay = self.SpellbookOverlays[button:GetName()]
         if overlay then
             overlay:Hide()
@@ -452,7 +495,7 @@ end
 function RankWatch:OnSpellbookPageChange()
     if self.SpellbookOpen then
         -- Small delay to let the UI update
-        C_Timer.After(0.05, function()
+        DelayCall(0.05, function()
             self:UpdateAllSpellbookButtons()
         end)
     end
@@ -465,11 +508,8 @@ function RankWatch:IsSpellPassive(spellNameLower)
         local name, rank = GetSpellBookItemName(i, BOOKTYPE_SPELL)
         if not name then break end
 
-        if name:lower() == spellNameLower then
-            local spellType, spellId = GetSpellBookItemInfo(i, BOOKTYPE_SPELL)
-            if spellId and IsPassiveSpell(spellId) then
-                return true
-            end
+        if name:lower() == spellNameLower and IsPassiveSpellbookSlot(i) then
+            return true
         end
         i = i + 1
     end
@@ -482,12 +522,9 @@ function RankWatch:GetStanceSpellNames()
     local numForms = GetNumShapeshiftForms()
 
     for i = 1, numForms do
-        local icon, active, castable, spellId = GetShapeshiftFormInfo(i)
-        if spellId then
-            local name = GetSpellInfo(spellId)
-            if name then
-                stanceNames[name:lower()] = true
-            end
+        local icon, name = GetShapeshiftFormInfo(i)
+        if name then
+            stanceNames[name:lower()] = true
         end
     end
 
@@ -870,7 +907,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1, ...)
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Initial scan on login/reload
-        C_Timer.After(1, function()
+        DelayCall(1, function()
             RankWatch:FullRefresh()
 
             -- Hook SpellBookFrame show/hide
