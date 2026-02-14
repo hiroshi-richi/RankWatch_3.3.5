@@ -1,8 +1,8 @@
-# RankWatch
+# RankWatch_3.3.5
 
-A WoW TBC Classic addon that highlights action bar buttons when they contain a lower rank spell than what you've learned.
+A WoW WoTLK Retail addon that highlights action bar buttons when they contain a lower rank spell than what you've learned.
 
-![Interface: 20505](https://img.shields.io/badge/Interface-20505-blue) ![TBC Classic](https://img.shields.io/badge/TBC-Classic-yellow)
+![Interface: 30300](https://img.shields.io/badge/Interface-30300-blue) ![WoTLK Retail](https://img.shields.io/badge/WoTLK-Retail-yellow)
 
 ## Why?
 
